@@ -1,0 +1,470 @@
+---
+title: "Impfquote"
+author: "Patrick Meier"
+date: "5. November 2021"
+output:
+  html_document:
+    number_sections: false
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    theme: simplex
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, results = "markup")
+# knitr::knit(..., encoding = getOption("encoding")) 
+```
+
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+```{r, include = FALSE}
+WORKING_DIR<- "H:/Meine Ablage/Datenteam/Projekte/202108_Impfkarte"
+setwd(WORKING_DIR)
+getwd()
+```
+
+
+
+# Data
+
+## Gemeindeportraits
+Wir verwenden:  
+* Einwohner  
+* Gemeindefläche  
+* Anteil Siedlungsfläche  
+* SVP-Wähleranteil  
+* Anteil Bauern  
+* Ausländeranteil  
+* Anteil U-18  
+* anteil Ü-65  
+
+https://www.bfs.admin.ch/bfs/de/home/statistiken/regionalstatistik/regionale-portraets-kennzahlen/gemeinden.assetdetail.15864450.html  
+* Einwohner_dichte     --> Einwohner pro Siedlungsfläche  
+* Einwohner_dichte_abs --> Einwohner pro Gemeindefläche (wird nicht benutzt)  
+```{r}
+# Spaltennamen und Schweiz-Werte
+gem_headers <- read_xlsx("Data_input/Gemeindeportraits_2021.xlsx", skip = 4, n_max = 1)
+
+lkp_gem_port <- read_xlsx("Data_input/Gemeindeportraits_2021.xlsx", skip = 9, n_max = 2172, 
+                        col_names = colnames(gem_headers))
+# Achtung, exakte Zeilenanzahl eingeben!
+# Erzeugt NAs bei SVP-Wähleranteil, dort wo keine SVP Stimmen 
+lkp_gem_port <- lkp_gem_port %>%
+  select(c("Gemeindecode" , "Gemeindename", "Einwohner", "0-19 Jahre", "20-64 Jahre", "65 Jahre und mehr",
+           "Gesamtfläche in km² 1)", "Siedlungsfläche in %", "SVP", "Ausländer in %",
+           "Beschäftigte total", "im 1. Sektor...24")) %>% 
+  rename(c("BFS_code" = "Gemeindecode", "municipality" = "Gemeindename", "F_gesamt_km2" = "Gesamtfläche in km² 1)",
+           "F_Siedlung_proc" = "Siedlungsfläche in %", "Anteil_SVP" = "SVP",
+           "XU_19" = "0-19 Jahre", "X20_64" = "20-64 Jahre", "XÜ_65" = "65 Jahre und mehr",
+           "Anteil_Ausländer" = "Ausländer in %")) %>% 
+  mutate(Einwohner_dichte = Einwohner / (F_gesamt_km2 * F_Siedlung_proc),
+         Einwohner_dichte_abs = Einwohner / F_gesamt_km2,
+         Anteil_SVP = as.numeric(Anteil_SVP) / 100,
+         Anteil_Bauern = as.numeric(`im 1. Sektor...24`) / as.numeric(`Beschäftigte total`)) %>% 
+  select(c("BFS_code" , "municipality", "Einwohner", "F_gesamt_km2", "F_Siedlung_proc",
+           "Einwohner_dichte", "Einwohner_dichte_abs", "Anteil_SVP", "Anteil_Ausländer", "Anteil_Bauern",
+           "XU_19", "X20_64", "XÜ_65"))
+
+rm(gem_headers)
+```
+
+
+## Median Income
+Von der Eidgenössischen Steuerverwaltung, Zahlen von 2017, deshalb Unstimmigkeiten mit dem Gemeindestand.   
+Pro Einwohner/-in, in Franken   
+https://www.atlas.bfs.admin.ch/maps/13/de/15829_9164_8282_8281/24774.html  
+https://www.estv.admin.ch/estv/de/home/allgemein/steuerstatistiken/fachinformationen/steuerstatistiken/direkte-bundessteuer.html  
+https://www.estv.admin.ch/dam/estv/de/dokumente/allgemein/Dokumentation/Zahlen_fakten/Steuerstatistiken/direkte_bundessteuer/np_statistische_kennzahlen_ohne/np_2017_mitnull.xlsx.download.xlsx/np_2017_mitnull.xlsx  
+
+Äquivalenzeinkommen:  
+Damit der materielle Wohlstand für Haushalte unterschiedlicher Grösse miteinander
+verglichen werden kann, wird das Einkommen jedes Haushalts mit einem Äquivalenzfaktor
+umgerechnet. Das Einkommen dividiert durch den Äquivalenzfaktor ergibt das
+Äquivalenzeinkommen. Für alleinstehende Erwachsene ist der Wert des Äquivalenzfaktors
+gleich 1, für Verheiratete 1.5; für jedes Kind und jede weitere durch den Steuerpflichtigen
+unterstützte Person wird ein Wert von 0.3 hinzugerechnet. So ist zum Beispiel das
+Äquivalenzeinkommen eines Paarhaushaltes mit zwei unterstützungspflichtigen Kindern
+gleich dem Haushaltseinkommen dividiert durch 2.1 (1.5+0.3+0.3). 
+
+medianst
+mediank: Median Steuerbares Einkommen pro Einwohner  
+medianka: Reines Median-Äquivalenzeinkommen pro Einwohner  
+
+ACHTUNG: Gemeindestand 2017:  
+Im Kanton Zürich fehlen Elgg, Stammheim, Wädenswil und Horgen wegen Fusionen:  
+per 1. Januar 2018:  
+die Gemeinden Hirzel und Horgen zur Gemeinde Horgen zusammengeschlossen.  
+die Gemeinden Elgg und Hofstetten zur Gemeinde Elgg zusammengeschlossen.  
+per 1. Januar 2019:  
+die Gemeinden Oberstammheim, Unterstammheim und Waltalingen zur Gemeinde Stammheim zusammengeschlossen.  
+die Gemeinden Hütten, Schönenberg und Wädenswil zur Gemeinde Wädenswil zusammengeschlossen.  
+
+--> Steuerbares Einkommen wird verwendet!  
+
+```{r}
+lkp_eink <- read_xlsx("D:/Tamedia/GSync/Datenteam/Projekte/202102_Corona_Sozioök/Data_input/Einkommen_2017.xlsx",
+                      sheet = 3) %>%
+            select(c("gdenr", "gdename", "median_reink", "median_reinka", "mean_reink", "mean_reinka", "median_steink")) %>% 
+            rename("BFS_code" = "gdenr")
+```
+
+
+## Bildung (nur ZH)
+XXXX WIRD NICHT VERWENDET XXXX  
+Proxi für Bildung: Maturitätsquote pro Gemeinde:  
+https://www.zh.ch/de/politik-staat/opendata.html?keyword=ogd#/details/672@bildungsstatistik-kanton-zuerich  
+Eignet sich nicht gut, da bei kleinen Gemeinden kein Wert angeben wird.  
+Nur für Zürich vorhanden.  
+--> Nicht verwenden
+```{r}
+lkp_bild <- read_csv("Data_input/ZH_Maturitaetsquote_Gemeinden_und_Kanton.csv") 
+```
+
+
+## Vaccination Quotas
+
+### GE
+XXXX noch nicht eingebaut XXXX  
+```{r, eval=FALSE, include=FALSE}
+library(RCurl)
+
+fileCSV <- getURL("https://docs.google.com/spreadsheets/d/1lGhXYp36kgK6DM1SYws21y6cJ5f1lQ7vHv5v4r9LjBo/edit#gid=0",
+                  .opts=list(ssl.verifypeer=FALSE))
+
+a <- read_csv(fileCSV)
+a <- read.csv(fileCSV)
+
+df_vac %>% filter(canton == "ZH") %>% pull(median_) %>% median(na.rm = TRUE)
+df_vac %>% filter(canton == "ZH") %>% pull(first_dose_proc) %>% median(na.rm = TRUE)
+```
+
+### AG
+3 Gemeinden mit extrem hoher Impfquote. Macht das Sinn oder ist da ein Fehler in den Daten?  
+--> Kanton angefragt, aber keine Antwort erhalten.  
+ACHTUNG!!!!
+second_dose_proc wird als first_dose_proc erfasst weil Aargau als einziger Kanton nur vollständig geimpfte ausweist.
+```{r}
+# https://www.ag.ch/de/themen_1/coronavirus_2/13_newsletter_covid_19_programm/newsletter_covid_19_programm.jsp
+# https://www.ag.ch/media/kanton_aargau/themen_1/coronavirus_1/impfung/Impfquote_nach_Gemeinden.xlsx
+
+in_AG <- read_xlsx("Data_input/AG.xlsx") %>% 
+  rename(c("municipality" = "Gemeinden", "second_dose_proc" = "Anteil 2. Imfpung nach Einwohner")) %>% 
+  mutate(referencedate = lubridate::as_date("2021-08-25"),
+         first_dose_proc = second_dose_proc, # Achtung wird extra als 1.Impfung erfasst
+         canton = "AG") %>% 
+  left_join(lkp_gem_port[, c("BFS_code", "municipality")], by = "municipality") %>% 
+  select(-c("Stichtag: 25. August 2021"))
+  
+```
+
+### ZH
+Teilweise tiefe Werte an den Kantonsgrenzen. Hat dies mit ausserkantonalen Impungen zu tun?  
+```{r}
+in_ZH <- read_csv("Data_output/dw_vacc_ZH_04112021.csv") %>% 
+  rename(c("BFS_code" = "GDENR", "municipality" = "GDENAME", "canton" = "GDEKT",
+           "referencedate" = "week_until",
+           "first_dose_proc" = "proc_vac1", "second_dose_proc" = "proc_vac2")) %>% 
+  select(-c("n_vac1", "n_vac2"))
+```
+
+### VD
+Offensichtlie Mängel in den Daten, z.B. Missy mit extrem hoher Impfquote.  
+```{r}
+in_VD <- read_csv("Data_output/dw_vacc_VD.csv") %>% 
+  rename(c("BFS_code" = "GDENR", "municipality" = "GDENAME", "canton" = "GDEKT",
+           "referencedate" = "week_until",
+           "first_dose_proc" = "proc_vac1", "second_dose_proc" = "proc_vac2")) %>% 
+  select(-c("n_vac1", "n_vac2", "pop_gde_bfs"))
+```
+
+### BL
+```{r}
+# Need to fix non-standard spelling of municipalities
+in_BL <- read_xlsx("Data_input/BL.xlsx") %>% 
+  mutate(referencedate = as.Date(referencedate)) %>% 
+  mutate(first_dose_proc = first_dose_proc / 100, 
+         second_dose_proc = second_dose_proc / 100) %>% 
+  mutate(municipality = recode(municipality, "Aesch" = "Aesch (BL)", "Rickenbach" = "Rickenbach (BL)",
+                                "Oberwil" = "Oberwil (BL)", "Reinach" = "Reinach (BL)",
+                                "Oberdorf" = "Oberdorf (BL)", "Kilchberg" = "Kilchberg (BL)")) %>% 
+  left_join(lkp_gem_port[, c("BFS_code", "municipality")], by = "municipality")
+
+
+```
+
+### Other Cantons
+Neuenburg
+```{r}
+in_vac <- read_xlsx("Data_input/cantons_consolidated.xlsx") %>% 
+  mutate(referencedate = as.Date(referencedate))
+```
+
+## Zusammenführen
+```{r}
+df_vac_out <- in_vac %>% bind_rows(in_ZH, in_BL, in_VD, in_AG) %>% 
+  mutate(referencedate = as.character(referencedate)) %>%
+  left_join(lkp_gem_port[, c("BFS_code", "Einwohner",
+                             "Anteil_SVP", "Anteil_Ausländer", "Anteil_Bauern",
+                             "Einwohner_dichte", "Einwohner_dichte_abs",
+                             "XU_19", "X20_64", "XÜ_65")],
+            by = "BFS_code")
+
+## Export für DW Karte Impfquote
+# df_vac_out %>% filter(canton == "ZH") %>% write_csv("Data_output/dw_impfquote_ZH.csv")
+
+df_vac <- df_vac_out %>% 
+  left_join(lkp_eink[, c("BFS_code", "median_reinka", "median_reink", "median_steink")],
+            by = "BFS_code") %>% 
+  filter(!is.na(first_dose_proc),
+         !is.na(Anteil_SVP))
+# rm(in_vac, in_ZH, in_BL, in_VD, in_AG)
+
+df_vac %>% 
+  group_by(canton) %>% 
+  summarise(n_gemeinden = n())
+```
+Wir haben insgesamt  `r dim(df_vac)[1]` Gemdeinden.
+
+
+
+```{r,include=FALSE, eval=FALSE}
+## Export für DW
+df_vac %>% select(c(BFS_code, municipality, canton, Einwohner, first_dose_proc,
+                    Anteil_SVP, Anteil_Ausländer, median_steink)) %>%
+  filter(canton == "ZH") %>%  write_csv("Data_output/dw_scatter_ZH.csv")
+```
+
+
+# Correlations
+
+## Nur für alle Daten
+Achtung, das kann einen falschen Eindruck erwecken, weil in den Verschiedenen Kantonen die Werte verschoben sein können.
+```{r}
+df_vac %>%
+  filter(!is.na(Anteil_Bauern)) %>% 
+  filter(!is.na(median_steink)) %>% 
+  mutate(log_Einwohner_dichte = log(Einwohner_dichte), sqrt_Anteil_Bauern = sqrt(Anteil_Bauern)) %>% 
+  select(c("first_dose_proc", "log_Einwohner_dichte", "Einwohner_dichte", "Anteil_SVP",
+           "Anteil_Ausländer", "XU_19", "XÜ_65",
+           "sqrt_Anteil_Bauern", "Anteil_Bauern", "median_reinka", "median_steink")) %>%
+  cor()
+```
+
+```{r}
+## Funktion zum Plotten von zwei Parametern
+plot_corrs <- function(df_plot, v1, v2, print_label=FALSE){
+  p <- df_plot %>%
+    ggplot(aes(x = {{v1}},  y = {{v2}},
+                      label = municipality,
+                      group = canton, color = canton)) +
+   geom_point() +
+   geom_smooth(method = "lm")
+  if(print_label){
+    p <- p + geom_label()  
+  }
+  return(p)
+}
+```
+
+
+## Einwohner vs. SVP
+```{r}
+plot_corrs(df_vac, log(Einwohner_dichte), Anteil_SVP)
+plot_corrs(df_vac, Einwohner_dichte, Anteil_SVP)
+```
+
+## Einkommen
+```{r}
+df_vac %>% plot_corrs(log(Einwohner_dichte), median_steink)
+df_vac %>% plot_corrs(Anteil_SVP, median_steink)
+df_vac %>% plot_corrs(median_reinka, median_steink)
+```
+
+## Ausländer vs. Dichte
+```{r}
+plot_corrs(df_vac, log(Einwohner_dichte), Anteil_Ausländer )
+```
+
+## Bauern vs. SVP
+```{r}
+df_vac %>% plot_corrs(sqrt(Anteil_Bauern), Anteil_SVP)
+```
+
+## Bauern vs. Ausländer
+```{r}
+df_vac %>% plot_corrs(sqrt(Anteil_Bauern), Anteil_Ausländer)
+```
+
+## U19 vs. Ü65
+```{r}
+plot_corrs(df_vac, XU_19, XÜ_65)
+```
+
+## XÜ_65 vs. SVP
+```{r}
+plot_corrs(df_vac, XÜ_65, Anteil_SVP)
+```
+
+## U19 vs. SVP
+```{r}
+plot_corrs(df_vac, XU_19, Anteil_SVP)
+```
+
+
+# Regression
+
+## Single models
+```{r}
+plot_corrs(df_vac, (Anteil_SVP), first_dose_proc)
+fit1 <- df_vac %>% lm((first_dose_proc) ~ canton + (Anteil_SVP), data = .)
+summary(fit1)
+
+plot_corrs(df_vac, log(Einwohner_dichte_abs), first_dose_proc)
+fit2 <- df_vac %>% lm(first_dose_proc ~ canton + log(Einwohner_dichte_abs), data = .)
+summary(fit2)
+
+plot_corrs(df_vac, XU_19, first_dose_proc)
+fit3 <- df_vac %>% lm(first_dose_proc ~ canton + XU_19, data = .)
+summary(fit3)
+
+plot_corrs(df_vac, XÜ_65, first_dose_proc)
+fit4 <- df_vac %>% lm(first_dose_proc ~ canton + XÜ_65, data = .)
+fit4 <- df_vac %>% lm(first_dose_proc ~ canton * XÜ_65, data = .)
+fit4 <- df_vac %>% lm(first_dose_proc ~ XÜ_65, data = .)
+summary(fit4)
+
+df_vac %>% plot_corrs(Anteil_Ausländer, first_dose_proc)
+fit5 <- df_vac %>% lm(first_dose_proc ~ canton + Anteil_Ausländer, data = .)
+summary(fit5)
+
+df_vac %>% plot_corrs((Anteil_Bauern), first_dose_proc)
+fit6 <- df_vac %>% lm(first_dose_proc ~ canton + sqrt(Anteil_Bauern), data = .)
+summary(fit6)
+
+df_vac %>% plot_corrs(median_steink, first_dose_proc)
+fit7 <- df_vac %>% lm(first_dose_proc ~ canton + median_steink, data = .)
+summary(fit7)
+```
+
+
+## Full Model
+Ausländer Anteil sollte nicht berücksichtigt werden, Modell wird nicht besser.  
+Anteil Bauern wird auch nicht verwendet, bring nicht viel aber ist nicht für alle Gemeinden verfügbar.
+```{r}
+fitB <- df_vac %>%
+  filter(!is.na(median_reinka)) %>%
+  lm(first_dose_proc ~ canton + log(Einwohner_dichte_abs) + (Anteil_SVP) +
+       XÜ_65 + XU_19 + Anteil_Ausländer + median_steink, data = .)
+summary(fitB)
+
+drop1(fitB)
+```
+
+### Nur für ZH
+Bildung noch drin, dafür alle anderen Kantone raus.  
+BILDUNG ist der wichtigste Prediktor!!! Alle anderen sind nicht mehr relevant, wenn Bildung berücksichtigt!
+```{r}
+df_regr <- df_vac %>%
+  left_join(lkp_bild[, c("Gemeinde_BFSCode", "Maturitätsquote_GYM")],
+            by = c("BFS_code" = "Gemeinde_BFSCode")) %>% 
+  mutate(Maturitätsquote_GYM = as.numeric(Maturitätsquote_GYM)) %>% 
+  filter(canton == "ZH",
+         !is.na(Maturitätsquote_GYM))
+
+fitB1 <- df_regr %>%
+  filter(!is.na(median_reinka)) %>%
+  lm(first_dose_proc ~ log(Einwohner_dichte_abs) + (Anteil_SVP) +
+       XÜ_65 + XU_19 + Anteil_Ausländer + median_steink + Maturitätsquote_GYM, data = .)
+summary(fitB1)
+
+drop1(fitB1)
+```
+
+```{r}
+df_regr %>% plot_corrs((Maturitätsquote_GYM), first_dose_proc)
+df_regr %>% plot_corrs(Anteil_SVP, first_dose_proc)
+fitB1B <- df_regr %>% lm((first_dose_proc) ~ (Maturitätsquote_GYM), data = .)
+summary(fitB1B)
+```
+
+
+## Optimal Model
+Über den Faktor "Kanton" werden neben kantonalen Unterschieden auch die unterschiedlichen Stichtage, und der Unterschied 1x oder 2x geimpft abgefangen.  
+
+Drop1 zeigt:  
+Am wichtigsten ist Einkommen, dann SVP-Anteil, dann Einwohnerdichte. Altersstruktur ist weniger wichtig.  
+```{r}
+fitA <- df_vac %>%
+  filter(!is.na(median_reinka)) %>%
+  lm(first_dose_proc ~ canton + log(Einwohner_dichte_abs) + (Anteil_SVP) +
+       XÜ_65 + XU_19 + median_steink, data = .)
+summary(fitA)
+
+drop1(fitA)
+```
+
+### Residuals
+Die Residuals zeigen, wie starke eine Gemeinde von der Vorhersage abweicht.  
+Dies wird für die Karte "Abweichung vom Modell" verwendet.
+
+```{r}
+## Residual Plot
+plot(fitA, 1)
+
+df_res <- df_vac %>%
+  # filter(!is.na(Anteil_Bauern)) %>%
+  filter(!is.na(median_steink)) %>%
+  mutate(residuals = fitA$residuals,
+         fittedValues = fitA$fitted.values)
+
+## 15 Municipalities higher vaccination quota then expected
+res_max <- df_res %>% 
+  arrange(desc(residuals)) %>% head(15) %>% pull(BFS_code)
+
+
+# ggplot() +
+#   geom_point(data = df_vac, aes(x = Anteil_SVP, y = first_dose_proc,
+#                                 colour = canton, group = canton)) +
+#     geom_smooth(data = df_vac, method = "lm",
+#                 aes(x = Anteil_SVP, y = first_dose_proc,
+#                     colour = canton, group = canton)) +
+#   geom_point(data = df_vac[df_vac$BFS_code %in% res_max, ], 
+#              aes(x = Anteil_SVP, y = first_dose_proc,
+#                  group = canton, color = canton, size = 5)) + 
+#   geom_label(data = df_vac[df_vac$BFS_code %in% res_max, ], 
+#              aes(x = Anteil_SVP, y = first_dose_proc, label = municipality,
+#                  colour = canton))
+```
+
+
+### Top 15 Abweichler
+```{r}
+df_res %>% filter(BFS_code %in% res_max) %>% arrange(desc(residuals))
+```
+
+```{r, eval = FALSE}
+
+## Store for Datawrapper
+df_res %>% select(-c(median_reinka, median_reink)) %>% 
+  write_csv("Data_output/residuals_CH_extended_steuerbarEink_04112021.csv")
+
+## Store for Datawrapper
+df_res %>% select(-c(median_reinka, median_reink)) %>% filter(canton == "ZH") %>%
+  write_csv("Data_output/residuals_ZH_extended_steuerbarEink_04112021.csv")
+```
+
+```{r}
+```
+
+```{r}
+```
+
+```{r}
+```
